@@ -32,6 +32,7 @@
       use exit_mod
       use registry
       use hmix_gm_submeso_share
+      use omp_lib 
 
 #ifdef CCSMCOUPLED
    use shr_sys_mod
@@ -3564,7 +3565,7 @@
 !-----------------------------------------------------------------------
 
       integer (int_kind) :: &
-         k, kk,     &        ! loop indices
+         k, kk, i, j,       &! loop indices
          bid                 ! local block address for this sub block
  
       real (r8), dimension(nx_block,ny_block,2) :: &
@@ -3576,11 +3577,13 @@
       real (r8), dimension(nx_block,ny_block) :: &
          WORK5, WORK6, WORK7          ! more work arrays
 
-      logical (log_kind), dimension(nx_block,ny_block) :: &
+      logical (log_kind) :: &
          LMASK               ! flag
 
       real (r8), dimension(2) :: &
          reference_depth              ! zt or zw
+
+      real (r8) start_time,end_time
 
 !-----------------------------------------------------------------------
 !
@@ -3618,91 +3621,128 @@
 !
 !-----------------------------------------------------------------------
 
-      do k=1,km-1
 
+      start_time = omp_get_wtime()
+
+      do k=1,km-1
         do kk=1,2
 
-          LMASK = TLT%K_LEVEL(:,:,bid) == k  .and.            &
-                  TLT%K_LEVEL(:,:,bid) < KMT(:,:,bid)  .and.  &
-                  TLT%ZTW(:,:,bid) == 1
+         !$OMP PARALLEL PRIVATE(I,J,LMASK)DEFAULT(SHARED)
+ 
+          !$omp do  
+          do j=1,ny_block
+           do i=1,nx_block
+ 
+          LMASK = TLT%K_LEVEL(i,j,bid) == k  .and.            &
+                       TLT%K_LEVEL(i,j,bid) < KMT(i,j,bid)  .and.  &
+                       TLT%ZTW(i,j,bid) == 1
 
-          where ( LMASK ) 
 
-            WORK1(:,:,kk) =  KAPPA_THIC(:,:,kbt,k,bid)  &
-                           * SLX(:,:,kk,kbt,k,bid) * dz(k)
-            WORK2(:,:,kk) = c2 * dzwr(k) * ( WORK1(:,:,kk)            &
-              - KAPPA_THIC(:,:,ktp,k+1,bid) * SLX(:,:,kk,ktp,k+1,bid) &
+            if ( LMASK ) then 
+
+             WORK1(i,j,kk) =  KAPPA_THIC(i,j,kbt,k,bid)  &
+                           * SLX(i,j,kk,kbt,k,bid) * dz(k)
+
+             WORK2(i,j,kk) = c2 * dzwr(k) * ( WORK1(i,j,kk)            &
+              - KAPPA_THIC(i,j,ktp,k+1,bid) * SLX(i,j,kk,ktp,k+1,bid) &
                                             * dz(k+1) )
 
-            WORK2_NEXT = c2 * ( &
-              KAPPA_THIC(:,:,ktp,k+1,bid) * SLX(:,:,kk,ktp,k+1,bid) - &
-              KAPPA_THIC(:,:,kbt,k+1,bid) * SLX(:,:,kk,kbt,k+1,bid) )
+             WORK2_NEXT(i,j) = c2 * ( &
+              KAPPA_THIC(i,j,ktp,k+1,bid) * SLX(i,j,kk,ktp,k+1,bid) - &
+              KAPPA_THIC(i,j,kbt,k+1,bid) * SLX(i,j,kk,kbt,k+1,bid) )
 
-            WORK3(:,:,kk) =  KAPPA_THIC(:,:,kbt,k,bid)  &
-                           * SLY(:,:,kk,kbt,k,bid) * dz(k)
-            WORK4(:,:,kk) = c2 * dzwr(k) * ( WORK3(:,:,kk)            &
-              - KAPPA_THIC(:,:,ktp,k+1,bid) * SLY(:,:,kk,ktp,k+1,bid) &
+             WORK3(i,j,kk) =  KAPPA_THIC(i,j,kbt,k,bid)  &
+                           * SLY(i,j,kk,kbt,k,bid) * dz(k)
+
+             WORK4(i,j,kk) = c2 * dzwr(k) * ( WORK3(i,j,kk)            &
+              - KAPPA_THIC(i,j,ktp,k+1,bid) * SLY(i,j,kk,ktp,k+1,bid) &
                                             * dz(k+1) )
 
-            WORK4_NEXT = c2 * ( &
-              KAPPA_THIC(:,:,ktp,k+1,bid) * SLY(:,:,kk,ktp,k+1,bid) - &
-              KAPPA_THIC(:,:,kbt,k+1,bid) * SLY(:,:,kk,kbt,k+1,bid) )
+             WORK4_NEXT(i,j) = c2 * ( &
+              KAPPA_THIC(i,j,ktp,k+1,bid) * SLY(i,j,kk,ktp,k+1,bid) - &
+              KAPPA_THIC(i,j,kbt,k+1,bid) * SLY(i,j,kk,kbt,k+1,bid) )
 
-          endwhere
+            endif
 
-          where ( LMASK .and. abs(WORK2_NEXT) < abs(WORK2(:,:,kk)) ) &
-            WORK2(:,:,kk) = WORK2_NEXT
+            if( LMASK .and. abs( WORK2_NEXT(i,j) ) < abs( WORK2(i,j,kk) ) )then 
 
-          where ( LMASK .and. abs(WORK4_NEXT) < abs(WORK4(:,:,kk)) ) &
-            WORK4(:,:,kk) = WORK4_NEXT
+             WORK2(i,j,kk) = WORK2_NEXT(i,j)
 
-          LMASK = TLT%K_LEVEL(:,:,bid) == k  .and.           &
-                  TLT%K_LEVEL(:,:,bid) < KMT(:,:,bid)  .and. &
-                  TLT%ZTW(:,:,bid) == 2
+            endif
 
-          where ( LMASK )
+           if ( LMASK .and. abs( WORK4_NEXT(i,j) ) < abs( WORK4(i,j,kk ) )) then 
+             WORK4(i,j,kk) = WORK4_NEXT(i,j)
+           endif
 
-            WORK1(:,:,kk) =  KAPPA_THIC(:,:,ktp,k+1,bid)     & 
-                           * SLX(:,:,kk,ktp,k+1,bid)
-            WORK2(:,:,kk) =  c2 * ( WORK1(:,:,kk)                 &
-                           - ( KAPPA_THIC(:,:,kbt,k+1,bid)        &
-                              * SLX(:,:,kk,kbt,k+1,bid) ) )
-            WORK1(:,:,kk) = WORK1(:,:,kk) * dz(k+1)
+          LMASK = TLT%K_LEVEL(i,j,bid) == k  .and.           &
+                       TLT%K_LEVEL(i,j,bid) < KMT(i,j,bid)  .and. &
+                       TLT%ZTW(i,j,bid) == 2
 
-            WORK3(:,:,kk) =  KAPPA_THIC(:,:,ktp,k+1,bid)     &
-                           * SLY(:,:,kk,ktp,k+1,bid)
-            WORK4(:,:,kk) =  c2 * ( WORK3(:,:,kk)                 &
-                           - ( KAPPA_THIC(:,:,kbt,k+1,bid)        &
-                              * SLY(:,:,kk,kbt,k+1,bid) ) )
-            WORK3(:,:,kk) = WORK3(:,:,kk) * dz(k+1)
+          if ( LMASK ) then
 
-          endwhere
+            WORK1(i,j,kk) =  KAPPA_THIC(i,j,ktp,k+1,bid)     & 
+                           * SLX(i,j,kk,ktp,k+1,bid)
 
-          LMASK = LMASK .and. TLT%K_LEVEL(:,:,bid) + 1 < KMT(:,:,bid)
+            WORK2(i,j,kk) =  c2 * ( WORK1(i,j,kk)                 &
+                           - ( KAPPA_THIC(i,j,kbt,k+1,bid)        &
+                              * SLX(i,j,kk,kbt,k+1,bid) ) )
 
-          if (k.lt.km-1) then ! added to avoid out of bounds access
-            where ( LMASK )
+            WORK1(i,j,kk) = WORK1(i,j,kk) * dz(k+1)
 
-              WORK2_NEXT = c2 * dzwr(k+1) * ( &
-                KAPPA_THIC(:,:,kbt,k+1,bid) * SLX(:,:,kk,kbt,k+1,bid) * dz(k+1) - &
-                KAPPA_THIC(:,:,ktp,k+2,bid) * SLX(:,:,kk,ktp,k+2,bid) * dz(k+2))
+            WORK3(i,j,kk) =  KAPPA_THIC(i,j,ktp,k+1,bid)     &
+                           * SLY(i,j,kk,ktp,k+1,bid)
 
-              WORK4_NEXT = c2 * dzwr(k+1) * ( &
-                KAPPA_THIC(:,:,kbt,k+1,bid) * SLY(:,:,kk,kbt,k+1,bid) * dz(k+1) - &
-                KAPPA_THIC(:,:,ktp,k+2,bid) * SLY(:,:,kk,ktp,k+2,bid) * dz(k+2))
+            WORK4(i,j,kk) =  c2 * ( WORK3(i,j,kk)                 &
+                           - ( KAPPA_THIC(i,j,kbt,k+1,bid)        &
+                              * SLY(i,j,kk,kbt,k+1,bid) ) )
 
-            endwhere
+            WORK3(i,j,kk) = WORK3(i,j,kk) * dz(k+1)
+
+            endif
+ 
+          LMASK = LMASK .and. TLT%K_LEVEL(i,j,bid) + 1 < KMT(i,j,bid)
+
+          if (k .lt. km-1) then ! added to avoid out of bounds access
+
+            if( LMASK ) then
+
+              WORK2_NEXT(i,j) = c2 * dzwr(k+1) * ( &
+                KAPPA_THIC(i,j,kbt,k+1,bid) * SLX(i,j,kk,kbt,k+1,bid) * dz(k+1)- &
+                KAPPA_THIC(i,j,ktp,k+2,bid) * SLX(i,j,kk,ktp,k+2,bid) * dz(k+2))
+
+              WORK4_NEXT(i,j) = c2 * dzwr(k+1) * ( &
+                KAPPA_THIC(i,j,kbt,k+1,bid) * SLY(i,j,kk,kbt,k+1,bid) * dz(k+1)- &
+                KAPPA_THIC(i,j,ktp,k+2,bid) * SLY(i,j,kk,ktp,k+2,bid) * dz(k+2))
+
+              endif 
+
           end if
+             
+          if( LMASK .and. abs( WORK2_NEXT(i,j) ) < abs( WORK2(i,j,kk) ) ) &
+            WORK2(i,j,kk) = WORK2_NEXT(i,j)
 
-          where ( LMASK .and. abs(WORK2_NEXT) < abs(WORK2(:,:,kk)) ) &
-            WORK2(:,:,kk) = WORK2_NEXT
+          if( LMASK .and. abs(WORK4_NEXT(i,j)) < abs(WORK4(i,j,kk)) ) &
+            WORK4(i,j,kk) = WORK4_NEXT(i,j)
 
-          where ( LMASK .and. abs(WORK4_NEXT) < abs(WORK4(:,:,kk)) ) &
-            WORK4(:,:,kk) = WORK4_NEXT
+             enddo
+          enddo
+          !$omp end do nowait 
 
+          !$OMP END PARALLEL
+   
         enddo
-
       enddo
+     
+      end_time = omp_get_wtime()
+      print *,end_time - start_time
+ 
+
+       !if(master_task == my_task) then
+       !open(unit=10,file="/home/aketh/ocn_correctness_data/changed.txt",status="unknown",position="append",action="write")
+       !write(10,*),WORK1,WORK2,WORK3,WORK4,WORK2_NEXT,WORK4_NEXT
+       !close(10)
+       !endif
+ 
 
 !-----------------------------------------------------------------------
 !
@@ -3722,6 +3762,7 @@
       where ((KMT(:,:,bid) /= 0) .AND. (TLT%THICKNESS(:,:,bid) > eps))
         WORK6(:,:) = WORK5(:,:) / TLT%THICKNESS(:,:,bid)
       endwhere
+
 
 !-----------------------------------------------------------------------
 !
