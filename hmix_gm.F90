@@ -3585,11 +3585,42 @@
 
       real (r8) start_time,end_time
 
+      real (r8), dimension(nx_block+4,ny_block,2) :: &
+         WORK1_VEC, WORK2_VEC, WORK3_VEC, WORK4_VEC   
+
+      real (r8), dimension(nx_block+4,ny_block) :: &
+         WORK2_NEXT_VEC, WORK4_NEXT_VEC      
+
+      real (r8), dimension(:,:,:,:,:), allocatable :: &
+         KAPPA_THIC_VEC
+
+      integer (int_kind), &
+              dimension(nx_block+4,ny_block,max_blocks_clinic) :: &
+           K_LEVEL_VEC,  &                                          
+           ZTW_VEC                  
+ 
+      real (r8), dimension(:,:,:,:,:,:), allocatable :: &
+         SLX_VEC,SLY_VEC
+ 
+      integer (int_kind),save :: flag=1
+
+
 !-----------------------------------------------------------------------
 !
 !     initialize various quantities
 !
 !-----------------------------------------------------------------------
+
+      if(flag==1)then
+ 
+      allocate (KAPPA_THIC_VEC(nx_block+4,ny_block,2,km,nblocks_clinic))
+!      allocate (SLX_VEC   (nx_block+4,ny_block,2,2,km,nblocks_clinic),  &
+!                SLY_VEC   (nx_block+4,ny_block,2,2,km,nblocks_clinic))
+
+      flag = 2
+      endif
+
+       
 
       bid = this_block%local_id
 
@@ -3606,6 +3637,7 @@
       WORK2_NEXT = c0
       WORK4_NEXT = c0
 
+
 !-----------------------------------------------------------------------
 !
 !     compute the interior streamfunction and its first derivative at the
@@ -3621,15 +3653,26 @@
 !
 !-----------------------------------------------------------------------
 
+      start_time = omp_get_wtime()      
 
-      start_time = omp_get_wtime()
+       KAPPA_THIC_VEC(1:nx_block,:,:,:,:) = KAPPA_THIC      
+!      SLX_VEC = reshape( SLX , (/nx_block+4,ny_block,2,2,km,nblocks_clinic /) ,pad=(/c1/) ) 
+!      SLY_VEC = reshape( SLY , (/nx_block+4,ny_block,2,2,km,nblocks_clinic /) ,pad=(/c1/) )
+
+!      WORK1_VEC = reshape( WORK1 , (/nx_block+4,ny_block,2 /) ,pad=(/c1/) )
+!      WORK2_VEC = reshape( WORK2 , (/nx_block+4,ny_block,2 /) ,pad=(/c1/) ) 
+!      WORK3_VEC = reshape( WORK3 , (/nx_block+4,ny_block,2 /) ,pad=(/c1/) )
+!      WORK4_VEC = reshape( WORK4 , (/nx_block+4,ny_block,2 /) ,pad=(/c1/) ) 
+     
+!      WORK2_NEXT_VEC = reshape( WORK2_NEXT , (/nx_block+4,ny_block /) ,pad=(/c1/) )      
+!      WORK4_NEXT_VEC = reshape( WORK4_NEXT , (/nx_block+4,ny_block /) ,pad=(/c1/) )
+
+!      K_LEVEL_VEC = reshape( TLT%K_LEVEL , (/nx_block+4,ny_block,max_blocks_clinic /) ,pad=(/1/) ) 
+!      ZTW_VEC = reshape( TLT%ZTW ,(/nx_block+4,ny_block,max_blocks_clinic /) ,pad=(/1/) )
 
       do k=1,km-1
         do kk=1,2
 
-         !$OMP PARALLEL PRIVATE(I,J,LMASK)DEFAULT(SHARED)
- 
-          !$omp do  
           do j=1,ny_block
            do i=1,nx_block
  
@@ -3726,9 +3769,6 @@
 
              enddo
           enddo
-          !$omp end do nowait 
-
-          !$OMP END PARALLEL
    
         enddo
       enddo
