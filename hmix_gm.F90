@@ -3577,29 +3577,31 @@
       real (r8), dimension(nx_block,ny_block) :: &
          WORK5, WORK6, WORK7          ! more work arrays
 
-      logical (log_kind) :: &
-         LMASK               ! flag
+      logical*8  :: &
+         LMASK(nx_block+12,ny_block),LMASK1     ! flag
 
       real (r8), dimension(2) :: &
          reference_depth              ! zt or zw
 
       real (r8) start_time,end_time
 
-      real (r8), dimension(nx_block+4,ny_block,2) :: &
+      real (r8), dimension(nx_block+12,ny_block,2) :: &
          WORK1_VEC, WORK2_VEC, WORK3_VEC, WORK4_VEC   
 
-      real (r8), dimension(nx_block+4,ny_block) :: &
+      real (r8), dimension(nx_block+12,ny_block) :: &
          WORK2_NEXT_VEC, WORK4_NEXT_VEC      
 
-      real (r8), dimension(:,:,:,:,:), allocatable :: &
+      integer*8, dimension(nx_block+12,ny_block,max_blocks_clinic) :: &
+         KMT_VEC
+
+      real (r8), dimension(nx_block+12,ny_block,2,km,nblocks_clinic) :: &
          KAPPA_THIC_VEC
 
-      integer (int_kind), &
-              dimension(nx_block+4,ny_block,max_blocks_clinic) :: &
+      integer*8 , dimension(nx_block+12,ny_block,max_blocks_clinic) :: &
            K_LEVEL_VEC,  &                                          
            ZTW_VEC                  
  
-      real (r8), dimension(:,:,:,:,:,:), allocatable :: &
+      real (r8), dimension(nx_block+12,ny_block,2,2,km,nblocks_clinic) :: &
          SLX_VEC,SLY_VEC
  
       integer (int_kind),save :: flag=1
@@ -3611,14 +3613,14 @@
 !
 !-----------------------------------------------------------------------
 
-      if(flag==1)then
+!      if(flag==1)then
  
-      allocate (KAPPA_THIC_VEC(nx_block+4,ny_block,2,km,nblocks_clinic))
-!      allocate (SLX_VEC   (nx_block+4,ny_block,2,2,km,nblocks_clinic),  &
-!                SLY_VEC   (nx_block+4,ny_block,2,2,km,nblocks_clinic))
+      !allocate (KAPPA_THIC_VEC(nx_block+12,ny_block,2,km,nblocks_clinic))
+      !allocate (SLX_VEC   (nx_block+12,ny_block,2,2,km,nblocks_clinic),  &
+      !          SLY_VEC   (nx_block+12,ny_block,2,2,km,nblocks_clinic))
 
-      flag = 2
-      endif
+!      flag = 2
+!      endif
 
        
 
@@ -3652,130 +3654,141 @@
 !     WORK4 calculations. 
 !
 !-----------------------------------------------------------------------
-
+ 
+      print *,sizeof(LMASK1) 
       start_time = omp_get_wtime()      
 
+        
        KAPPA_THIC_VEC(1:nx_block,:,:,:,:) = KAPPA_THIC      
-!      SLX_VEC = reshape( SLX , (/nx_block+4,ny_block,2,2,km,nblocks_clinic /) ,pad=(/c1/) ) 
-!      SLY_VEC = reshape( SLY , (/nx_block+4,ny_block,2,2,km,nblocks_clinic /) ,pad=(/c1/) )
+       SLX_VEC(1:nx_block,:,:,:,:,:) =  SLX  
+       SLY_VEC(1:nx_block,:,:,:,:,:) =  SLY 
+        
 
-!      WORK1_VEC = reshape( WORK1 , (/nx_block+4,ny_block,2 /) ,pad=(/c1/) )
-!      WORK2_VEC = reshape( WORK2 , (/nx_block+4,ny_block,2 /) ,pad=(/c1/) ) 
-!      WORK3_VEC = reshape( WORK3 , (/nx_block+4,ny_block,2 /) ,pad=(/c1/) )
-!      WORK4_VEC = reshape( WORK4 , (/nx_block+4,ny_block,2 /) ,pad=(/c1/) ) 
+       WORK1_VEC(1:nx_block,:,:) = WORK1 
+       WORK2_VEC(1:nx_block,:,:) = WORK2  
+       WORK3_VEC(1:nx_block,:,:) = WORK3 
+       WORK4_VEC(1:nx_block,:,:) = WORK4  
      
-!      WORK2_NEXT_VEC = reshape( WORK2_NEXT , (/nx_block+4,ny_block /) ,pad=(/c1/) )      
-!      WORK4_NEXT_VEC = reshape( WORK4_NEXT , (/nx_block+4,ny_block /) ,pad=(/c1/) )
+       WORK2_NEXT_VEC(1:nx_block,:) = WORK2_NEXT       
+       WORK4_NEXT_VEC(1:nx_block,:) = WORK4_NEXT
 
-!      K_LEVEL_VEC = reshape( TLT%K_LEVEL , (/nx_block+4,ny_block,max_blocks_clinic /) ,pad=(/1/) ) 
-!      ZTW_VEC = reshape( TLT%ZTW ,(/nx_block+4,ny_block,max_blocks_clinic /) ,pad=(/1/) )
+       K_LEVEL_VEC(1:nx_block,:,:) = TLT%K_LEVEL  
+       ZTW_VEC(1:nx_block,:,:) =  TLT%ZTW 
+       KMT_VEC(1:nx_block,:,:) = KMT
 
+      print *,nx_block 
       do k=1,km-1
         do kk=1,2
 
           do j=1,ny_block
-           do i=1,nx_block
+           !dir$ simd
+           do i=1,nx_block+12
+
  
-          LMASK = TLT%K_LEVEL(i,j,bid) == k  .and.            &
-                       TLT%K_LEVEL(i,j,bid) < KMT(i,j,bid)  .and.  &
-                       TLT%ZTW(i,j,bid) == 1
+          LMASK(i,j) = K_LEVEL_VEC(i,j,bid) == k  .and.            &
+                       K_LEVEL_VEC(i,j,bid) < KMT_VEC(i,j,bid)  .and.  &
+                       ZTW_VEC(i,j,bid) == 1
+
+            if ( LMASK(i,j) ) then 
+
+             WORK1_VEC(i,j,kk) =  KAPPA_THIC_VEC(i,j,kbt,k,bid)  &
+                           * SLX_VEC(i,j,kk,kbt,k,bid) * dz(k)
 
 
-            if ( LMASK ) then 
-
-             WORK1(i,j,kk) =  KAPPA_THIC(i,j,kbt,k,bid)  &
-                           * SLX(i,j,kk,kbt,k,bid) * dz(k)
-
-             WORK2(i,j,kk) = c2 * dzwr(k) * ( WORK1(i,j,kk)            &
-              - KAPPA_THIC(i,j,ktp,k+1,bid) * SLX(i,j,kk,ktp,k+1,bid) &
+             WORK2_VEC(i,j,kk) = c2 * dzwr(k) * ( WORK1_VEC(i,j,kk)            &
+              - KAPPA_THIC_VEC(i,j,ktp,k+1,bid) * SLX_VEC(i,j,kk,ktp,k+1,bid) &
                                             * dz(k+1) )
 
-             WORK2_NEXT(i,j) = c2 * ( &
-              KAPPA_THIC(i,j,ktp,k+1,bid) * SLX(i,j,kk,ktp,k+1,bid) - &
-              KAPPA_THIC(i,j,kbt,k+1,bid) * SLX(i,j,kk,kbt,k+1,bid) )
+             WORK2_NEXT_VEC(i,j) = c2 * ( &
+              KAPPA_THIC_VEC(i,j,ktp,k+1,bid) * SLX_VEC(i,j,kk,ktp,k+1,bid) - &
+              KAPPA_THIC_VEC(i,j,kbt,k+1,bid) * SLX_VEC(i,j,kk,kbt,k+1,bid) )
 
-             WORK3(i,j,kk) =  KAPPA_THIC(i,j,kbt,k,bid)  &
-                           * SLY(i,j,kk,kbt,k,bid) * dz(k)
+             WORK3_VEC(i,j,kk) =  KAPPA_THIC_VEC(i,j,kbt,k,bid)  &
+                           * SLY_VEC(i,j,kk,kbt,k,bid) * dz(k)
 
-             WORK4(i,j,kk) = c2 * dzwr(k) * ( WORK3(i,j,kk)            &
-              - KAPPA_THIC(i,j,ktp,k+1,bid) * SLY(i,j,kk,ktp,k+1,bid) &
+             WORK4_VEC(i,j,kk) = c2 * dzwr(k) * ( WORK3_VEC(i,j,kk)            &
+              - KAPPA_THIC_VEC(i,j,ktp,k+1,bid) * SLY_VEC(i,j,kk,ktp,k+1,bid) &
                                             * dz(k+1) )
 
-             WORK4_NEXT(i,j) = c2 * ( &
-              KAPPA_THIC(i,j,ktp,k+1,bid) * SLY(i,j,kk,ktp,k+1,bid) - &
-              KAPPA_THIC(i,j,kbt,k+1,bid) * SLY(i,j,kk,kbt,k+1,bid) )
+             WORK4_NEXT_VEC(i,j) = c2 * ( &
+              KAPPA_THIC_VEC(i,j,ktp,k+1,bid) * SLY_VEC(i,j,kk,ktp,k+1,bid) - &
+              KAPPA_THIC_VEC(i,j,kbt,k+1,bid) * SLY_VEC(i,j,kk,kbt,k+1,bid) )
 
             endif
 
-            if( LMASK .and. abs( WORK2_NEXT(i,j) ) < abs( WORK2(i,j,kk) ) )then 
+            if( LMASK(i,j) .and. abs( WORK2_NEXT_VEC(i,j) ) < abs( WORK2_VEC(i,j,kk) ) )then 
 
-             WORK2(i,j,kk) = WORK2_NEXT(i,j)
+             WORK2_VEC(i,j,kk) = WORK2_NEXT_VEC(i,j)
 
             endif
 
-           if ( LMASK .and. abs( WORK4_NEXT(i,j) ) < abs( WORK4(i,j,kk ) )) then 
-             WORK4(i,j,kk) = WORK4_NEXT(i,j)
+           if ( LMASK(i,j) .and. abs( WORK4_NEXT_VEC(i,j) ) < abs( WORK4_VEC(i,j,kk ) )) then 
+             WORK4_VEC(i,j,kk) = WORK4_NEXT_VEC(i,j)
            endif
 
-          LMASK = TLT%K_LEVEL(i,j,bid) == k  .and.           &
-                       TLT%K_LEVEL(i,j,bid) < KMT(i,j,bid)  .and. &
-                       TLT%ZTW(i,j,bid) == 2
+          LMASK(i,j) = K_LEVEL_VEC(i,j,bid) == k  .and.           &
+                       K_LEVEL_VEC(i,j,bid) < KMT_VEC(i,j,bid)  .and. &
+                       ZTW_VEC(i,j,bid) == 2
 
-          if ( LMASK ) then
+          if ( LMASK(i,j) ) then
 
-            WORK1(i,j,kk) =  KAPPA_THIC(i,j,ktp,k+1,bid)     & 
-                           * SLX(i,j,kk,ktp,k+1,bid)
+            WORK1_VEC(i,j,kk) =  KAPPA_THIC_VEC(i,j,ktp,k+1,bid)     & 
+                           * SLX_VEC(i,j,kk,ktp,k+1,bid)
 
-            WORK2(i,j,kk) =  c2 * ( WORK1(i,j,kk)                 &
-                           - ( KAPPA_THIC(i,j,kbt,k+1,bid)        &
-                              * SLX(i,j,kk,kbt,k+1,bid) ) )
+            WORK2_VEC(i,j,kk) =  c2 * ( WORK1_VEC(i,j,kk)                 &
+                           - ( KAPPA_THIC_VEC(i,j,kbt,k+1,bid)        &
+                              * SLX_VEC(i,j,kk,kbt,k+1,bid) ) )
 
-            WORK1(i,j,kk) = WORK1(i,j,kk) * dz(k+1)
+            WORK1_VEC(i,j,kk) = WORK1_VEC(i,j,kk) * dz(k+1)
 
-            WORK3(i,j,kk) =  KAPPA_THIC(i,j,ktp,k+1,bid)     &
-                           * SLY(i,j,kk,ktp,k+1,bid)
+            WORK3_VEC(i,j,kk) =  KAPPA_THIC_VEC(i,j,ktp,k+1,bid)     &
+                           * SLY_VEC(i,j,kk,ktp,k+1,bid)
 
-            WORK4(i,j,kk) =  c2 * ( WORK3(i,j,kk)                 &
-                           - ( KAPPA_THIC(i,j,kbt,k+1,bid)        &
-                              * SLY(i,j,kk,kbt,k+1,bid) ) )
+            WORK4_VEC(i,j,kk) =  c2 * ( WORK3_VEC(i,j,kk)                 &
+                           - ( KAPPA_THIC_VEC(i,j,kbt,k+1,bid)        &
+                              * SLY_VEC(i,j,kk,kbt,k+1,bid) ) )
 
-            WORK3(i,j,kk) = WORK3(i,j,kk) * dz(k+1)
+            WORK3_VEC(i,j,kk) = WORK3_VEC(i,j,kk) * dz(k+1)
 
             endif
  
-          LMASK = LMASK .and. TLT%K_LEVEL(i,j,bid) + 1 < KMT(i,j,bid)
+          LMASK(i,j) = LMASK(i,j) .and. K_LEVEL_VEC(i,j,bid) + 1 < KMT_VEC(i,j,bid)
 
           if (k .lt. km-1) then ! added to avoid out of bounds access
 
-            if( LMASK ) then
+            if( LMASK(i,j) ) then
 
-              WORK2_NEXT(i,j) = c2 * dzwr(k+1) * ( &
-                KAPPA_THIC(i,j,kbt,k+1,bid) * SLX(i,j,kk,kbt,k+1,bid) * dz(k+1)- &
-                KAPPA_THIC(i,j,ktp,k+2,bid) * SLX(i,j,kk,ktp,k+2,bid) * dz(k+2))
+              WORK2_NEXT_VEC(i,j) = c2 * dzwr(k+1) * ( &
+                KAPPA_THIC_VEC(i,j,kbt,k+1,bid) * SLX_VEC(i,j,kk,kbt,k+1,bid) * dz(k+1)- &
+                KAPPA_THIC_VEC(i,j,ktp,k+2,bid) * SLX_VEC(i,j,kk,ktp,k+2,bid) * dz(k+2))
 
-              WORK4_NEXT(i,j) = c2 * dzwr(k+1) * ( &
-                KAPPA_THIC(i,j,kbt,k+1,bid) * SLY(i,j,kk,kbt,k+1,bid) * dz(k+1)- &
-                KAPPA_THIC(i,j,ktp,k+2,bid) * SLY(i,j,kk,ktp,k+2,bid) * dz(k+2))
+              WORK4_NEXT_VEC(i,j) = c2 * dzwr(k+1) * ( &
+                KAPPA_THIC_VEC(i,j,kbt,k+1,bid) * SLY_VEC(i,j,kk,kbt,k+1,bid) * dz(k+1)- &
+                KAPPA_THIC_VEC(i,j,ktp,k+2,bid) * SLY_VEC(i,j,kk,ktp,k+2,bid) * dz(k+2))
 
               endif 
 
           end if
              
-          if( LMASK .and. abs( WORK2_NEXT(i,j) ) < abs( WORK2(i,j,kk) ) ) &
-            WORK2(i,j,kk) = WORK2_NEXT(i,j)
+          if( LMASK(i,j) .and. abs( WORK2_NEXT_VEC(i,j) ) < abs( WORK2_VEC(i,j,kk) ) ) &
+            WORK2_VEC(i,j,kk) = WORK2_NEXT_VEC(i,j)
 
-          if( LMASK .and. abs(WORK4_NEXT(i,j)) < abs(WORK4(i,j,kk)) ) &
-            WORK4(i,j,kk) = WORK4_NEXT(i,j)
+          if( LMASK(i,j) .and. abs(WORK4_NEXT_VEC(i,j)) < abs(WORK4_VEC(i,j,kk)) ) &
+            WORK4_VEC(i,j,kk) = WORK4_NEXT_VEC(i,j)
 
              enddo
           enddo
    
         enddo
-      enddo
+     enddo
      
       end_time = omp_get_wtime()
       print *,end_time - start_time
+
  
+      !deallocate (KAPPA_THIC_VEC)
+      !deallocate (SLX_VEC  ,  &
+      !            SLY_VEC   )
 
        !if(master_task == my_task) then
        !open(unit=10,file="/home/aketh/ocn_correctness_data/changed.txt",status="unknown",position="append",action="write")
